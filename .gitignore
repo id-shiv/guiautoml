@@ -1,0 +1,11 @@
+# temperory folders
+screenshots/
+
+# visual studio
+.vscode/
+
+# virtual environment
+_env/
+
+# python file
+__pycache__/
