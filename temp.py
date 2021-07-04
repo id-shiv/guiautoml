@@ -1,65 +1,86 @@
 import os
+import shutil
 import datetime
 import pyautogui as gui
 import cv2
+from skimage.metrics import structural_similarity
+import imutils
+import threading
 
 
-def compare_images(image1, image2):
+def compare_images(image_one, image_two):
+
     """Compare 2 images.
 
     Args:
-        image1 (str): Image to compare.
-        image2 (str): Image to be compared against.
+        image_one (str): File name of image one.
+        image_two (str): File name of image two.
 
     Returns:
-        int: Difference of image pixels.
-            -2      : Error processing shape
-            -1      : Images are of different shape
-            0       : Images are same
-            positive: Images are diffent. Number indicates magnitude of difference.
+        dict: Compare results with indices
+            "image_one"         : File name of image one.
+            "image_two"         : File name of image two.
+            "is_same_size"      : True if file resolution is same.
+            "similarity_score"  : Similarity score. Range from 1 to -1 with 1 being same, -1 if nothing matching.
+            "num_differences"   : Number of differences.
+            "compared_image"    : File name of image highlighting differences.
+
     """
 
+    # hold the final results
+    compare_results = {}
+    compare_results["image_one"] = image_one
+    compare_results["image_two"] = image_two
+
     # read the images
-    _image1_cv = cv2.imread(image1)
-    _image2_cv = cv2.imread(image2)
+    _image_one_cv = cv2.imread(image_one)
+    _image_two_cv = cv2.imread(image_two)
 
     # check if the images are of same size
     is_same_size = False
     try:
-        is_same_size = _image1_cv.shape == _image2_cv.shape
+        is_same_size = _image_one_cv.shape == _image_two_cv.shape
     except BaseException as be:
-        print(f"Count not get the shape for {image1} and {image2}")
+        print(f"Count not get the shape for {image_one} and {image_two}")
         print(be)
-        return -2
+
+    compare_results["is_same_size"] = is_same_size
 
     if is_same_size:
-        # calculate the difference
-        _image_diff = cv2.subtract(_image1_cv, _image2_cv)
+        # get the difference for grey colors
+        gray1 = cv2.cvtColor(_image_one_cv, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(_image_two_cv, cv2.COLOR_BGR2GRAY)
 
-        # uncomment this if you want to view the difference image
-        # cv2.imshow("diff", _image_diff)
-        # cv2.waitKey(0)
+        # compute the Structural Similarity Index (SSIM)
+        (score, difference) = structural_similarity(gray1, gray2, full=True)
+        difference = (difference * 255).astype("uint8")
+        compare_results["similarity_score"] = score
 
-        # get the difference for blue, green & red colors
-        b, g, r = cv2.split(_image_diff)
+        # create an image with differences
+        threshold = cv2.threshold(
+            difference, 0, 128, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU
+        )[1]
+        cnts = cv2.findContours(
+            threshold.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        cnts = imutils.grab_contours(cnts)
 
-        # add the difference for blue, green & red colors
-        _difference_cv = cv2.countNonZero(b) + cv2.countNonZero(g) + cv2.countNonZero(r)
-        # cv2.imshow("diff", _difference_cv)
-        # cv2.waitKey(0)
+        # loop over contours
+        num_differences = 0
+        for c in cnts:
+            (x, y, w, h) = cv2.boundingRect(c)
+            rect_area = w * h
+            if rect_area > 10:
+                num_differences += 1
+                cv2.rectangle(_image_one_cv, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                cv2.rectangle(_image_two_cv, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
-        # images are same if the sum of all differences is 0
-        if _difference_cv == 0:
-            print(f"images {image1} and {image2} are same")
-            return 0
-        else:
-            print(
-                f"images {image1} and {image2} are different with a difference of {_difference_cv}"
-            )
-            return _difference_cv
-    else:
-        print(f"images {image1} and {image2} are of different shape")
-        return -1
+                _file_name = image_two.replace(".png", "_diff.png")
+                cv2.imwrite(_file_name, _image_two_cv)
+                compare_results["num_differences"] = num_differences
+                compare_results["compared_image"] = _file_name
+
+    return compare_results
 
 
 def save_screenshot(path=".", file_name="current_time_stamp", file_extension="png"):
@@ -98,56 +119,73 @@ def save_screenshot(path=".", file_name="current_time_stamp", file_extension="pn
     # save the screenshot
     try:
         gui.screenshot(_file_path)
-        print(f"screenshot saved as {_file_path}")
         return _file_path
-    except:
+    except BaseException as e:
         print(f"unable to save the screenshot")
         print(e)
 
 
-def save_screenshot_bursts(path=".", interval=2, on_change=True, exit_interval=10):
+def save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
     """Save screenshot bursts.
 
     Args:
+        stop_event (thereading.Event()): Event to exit saving screenshots bursts.
         path (str, optional): Folder path to save the file. Defaults to ".".
         interval (int, optional): Interval between screenshots in seconds. Defaults to 2.
         on_change (bool, optional): Save screenshot only when screen changes. Defaults to True.
-        exit_interval (int, optional): Interval to exit saving screenshots in seconds. Defaults to 10.
     """
-
-    duration = 0  # duration to be incremented till exit interval
 
     # save screenshot
     _previous_screen = save_screenshot(path=path)
 
     # save screenshot bursts untill specified exit interval
-    while duration < exit_interval:
-        gui.sleep(interval)
-
+    while not stop_event.is_set():
         # save screenshot only on screen change
         if on_change:
             # save a new screenshot
             _current_screen = save_screenshot(path=path)
 
             # delete the saved screenshot if no change in screen
-            if compare_images(_previous_screen, _current_screen) == 0:
+            compare_results = compare_images(_previous_screen, _current_screen)
+            print(compare_results)
+            if compare_results["similarity_score"] == 1:
                 if os.path.exists(_current_screen):
                     os.remove(_current_screen)
-                    print(f"screenshot {_current_screen} deleted")
             else:
+                # move the difference image
+                _file_name = compare_results["compared_image"].split("/")[-1]
+                _root_folder = compare_results["compared_image"].replace(_file_name, "")
+                _new_folder = "differences"
+                _new_file_path = os.path.join(_root_folder, _new_folder)
+                os.makedirs(_new_file_path, exist_ok=True)
+
+                shutil.move(compare_results["compared_image"], _new_file_path)
+
                 _previous_screen = _current_screen
 
         else:  # save the screenshot regardless of screen change
             save_screenshot(path=path)
 
-        duration += interval
+        stop_event.wait(interval)
 
 
 if __name__ == "__main__":
-    # save_screenshot_bursts(
-    #     path="screenshots", interval=5, on_change=True, exit_interval=60
-    # )
-    compare_images(
-        "screenshots/2021-07-03-22-30-20-745487.png",
-        "screenshots/2021-07-03-22-30-26-132129.png",
+    # create an event to stop saving screenshots
+    # used to signal termination to the threads
+    stop_event = threading.Event()
+    stop_event.wait(5)  # wait for sometime before starting
+
+    # start saving screenshots in a thread
+    thread = threading.Thread(
+        target=save_screenshot_bursts,
+        args=(stop_event, "screenshots/run1/ESG-TC-0000001", 1, True),
     )
+    thread.start()
+
+    # set the event event (Ctrl + C) to exit saving screenshots
+    try:
+        while True:
+            continue
+    except (KeyboardInterrupt, SystemExit):
+        # stop saving screenshot bursts on Ctrl + C
+        stop_event.set()
