@@ -2,13 +2,24 @@ import os
 import shutil
 import datetime
 import pyautogui as gui
+from pynput import keyboard
 import cv2
 from skimage.metrics import structural_similarity
 import imutils
 import threading
 
 
-def compare_images(image_one, image_two):
+def __is_key_press(input_key):
+    def on_press(key):
+        if key == keyboard.Key.esc or key == input_key:
+            return False
+
+    with keyboard.Listener(on_press=on_press) as listener:
+        listener.join()
+        return True
+
+
+def __compare_images(image_one, image_two):
 
     """Compare 2 images.
 
@@ -83,7 +94,7 @@ def compare_images(image_one, image_two):
     return compare_results
 
 
-def save_screenshot(path=".", file_name="current_time_stamp", file_extension="png"):
+def __save_screenshot(path=".", file_name="current_time_stamp", file_extension="png"):
     """Save screenshot to a file.
 
     Args:
@@ -125,7 +136,7 @@ def save_screenshot(path=".", file_name="current_time_stamp", file_extension="pn
         print(e)
 
 
-def save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
+def __save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
     """Save screenshot bursts.
 
     Args:
@@ -136,17 +147,17 @@ def save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
     """
 
     # save screenshot
-    _previous_screen = save_screenshot(path=path)
+    _previous_screen = __save_screenshot(path=path)
 
     # save screenshot bursts untill specified exit interval
     while not stop_event.is_set():
         # save screenshot only on screen change
         if on_change:
             # save a new screenshot
-            _current_screen = save_screenshot(path=path)
+            _current_screen = __save_screenshot(path=path)
 
             # delete the saved screenshot if no change in screen
-            compare_results = compare_images(_previous_screen, _current_screen)
+            compare_results = __compare_images(_previous_screen, _current_screen)
             print(compare_results)
             if compare_results["similarity_score"] == 1:
                 if os.path.exists(_current_screen):
@@ -158,7 +169,6 @@ def save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
                 _new_folder = "differences"
                 _new_file_path = os.path.join(_root_folder, _new_folder)
                 os.makedirs(_new_file_path, exist_ok=True)
-
                 shutil.move(compare_results["compared_image"], _new_file_path)
 
                 _previous_screen = _current_screen
@@ -169,23 +179,45 @@ def save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
         stop_event.wait(interval)
 
 
-if __name__ == "__main__":
+def start_screenshot_save(path, start_key="s", stop_key="e"):
+    """Start saving screenshots and exit on stop_key
+
+    Args:
+        path (str): Folder path to save the screenshots
+        start_key (str, optional): Keyboard key to start saving screenshots. Defaults to "s".
+        stop_key (str, optional): Keyboard key to stop saving screenshots. Defaults to "e".
+    """
+    # set the keyboard keys to start and stop saving screenshots
+    start_key = keyboard.KeyCode.from_char(start_key)
+    stop_key = keyboard.KeyCode.from_char(stop_key)
+
     # create an event to stop saving screenshots
-    # used to signal termination to the threads
     stop_event = threading.Event()
-    stop_event.wait(5)  # wait for sometime before starting
 
-    # start saving screenshots in a thread
-    thread = threading.Thread(
-        target=save_screenshot_bursts,
-        args=(stop_event, "screenshots/run1/ESG-TC-0000001", 1, True),
-    )
-    thread.start()
+    while True:
+        # start the threas on start key press
+        if __is_key_press(input_key=start_key):
+            # start saving screenshots in a thread
+            thread = threading.Thread(
+                target=__save_screenshot_bursts,
+                args=(stop_event, path, 1, True),
+            )
+            thread.start()
 
-    # set the event event (Ctrl + C) to exit saving screenshots
-    try:
-        while True:
-            continue
-    except (KeyboardInterrupt, SystemExit):
-        # stop saving screenshot bursts on Ctrl + C
-        stop_event.set()
+            # exit the thread on stop key press
+            if __is_key_press(input_key=stop_key):
+                stop_event.set()
+                thread.join()
+                break
+        return
+
+
+if __name__ == "__main__":
+    path = "screenshots/run1/ESG-TC-0000001"
+    start_screenshot_save(path=path)
+
+    path = "screenshots/run1/ESG-TC-0000002"
+    start_screenshot_save(path=path)
+
+    path = "screenshots/run2/ESG-TC-0000001"
+    start_screenshot_save(path=path)
