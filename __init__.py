@@ -217,6 +217,6 @@ def start_screenshot_save(path, start_key="s", stop_key="e", interval=5, on_chan
         return
 
 
-if __name__ == "__main__":
-    path = r"screenshots\run1\ESG-TC-0000001"
-    start_screenshot_save(path=path)
+# if __name__ == "__main__":
+#     path = r"screenshots\run1\ESG-TC-0000001"
+#     start_screenshot_save(path=path)
