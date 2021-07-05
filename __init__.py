@@ -158,34 +158,39 @@ def __save_screenshot_bursts(stop_event, path=".", interval=1, on_change=True):
 
             # delete the saved screenshot if no change in screen
             compare_results = __compare_images(_previous_screen, _current_screen)
-            print(compare_results)
+            
             if compare_results["similarity_score"] == 1:
                 if os.path.exists(_current_screen):
                     os.remove(_current_screen)
             else:
                 # move the difference image
-                _file_name = compare_results["compared_image"].split("/")[-1]
+                _file_name = compare_results["compared_image"].split("\\")[-1]
                 _root_folder = compare_results["compared_image"].replace(_file_name, "")
                 _new_folder = "differences"
                 _new_file_path = os.path.join(_root_folder, _new_folder)
                 os.makedirs(_new_file_path, exist_ok=True)
                 shutil.move(compare_results["compared_image"], _new_file_path)
+                compare_results["compared_image"] = _new_file_path
 
                 _previous_screen = _current_screen
+                
+            print(compare_results)
 
         else:  # save the screenshot regardless of screen change
-            save_screenshot(path=path)
+            __save_screenshot(path=path)
 
         stop_event.wait(interval)
 
 
-def start_screenshot_save(path, start_key="s", stop_key="e"):
+def start_screenshot_save(path, start_key="s", stop_key="e", interval=5, on_change=True):
     """Start saving screenshots and exit on stop_key
 
     Args:
         path (str): Folder path to save the screenshots
         start_key (str, optional): Keyboard key to start saving screenshots. Defaults to "s".
         stop_key (str, optional): Keyboard key to stop saving screenshots. Defaults to "e".
+        interval (int, optional): Interval between screenshots in seconds. Defaults to 2.
+        on_change (bool, optional): Save screenshot only when screen changes. Defaults to True.
     """
     # set the keyboard keys to start and stop saving screenshots
     start_key = keyboard.KeyCode.from_char(start_key)
@@ -200,7 +205,7 @@ def start_screenshot_save(path, start_key="s", stop_key="e"):
             # start saving screenshots in a thread
             thread = threading.Thread(
                 target=__save_screenshot_bursts,
-                args=(stop_event, path, 1, True),
+                args=(stop_event, path, interval, on_change),
             )
             thread.start()
 
@@ -213,11 +218,5 @@ def start_screenshot_save(path, start_key="s", stop_key="e"):
 
 
 if __name__ == "__main__":
-    path = "screenshots/run1/ESG-TC-0000001"
-    start_screenshot_save(path=path)
-
-    path = "screenshots/run1/ESG-TC-0000002"
-    start_screenshot_save(path=path)
-
-    path = "screenshots/run2/ESG-TC-0000001"
+    path = r"screenshots\run1\ESG-TC-0000001"
     start_screenshot_save(path=path)
